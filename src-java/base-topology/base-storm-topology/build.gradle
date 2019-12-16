@@ -26,6 +26,9 @@ dependencies {
     testImplementation('org.apache.storm:storm-core') {
         exclude(group: 'org.slf4j', module: 'log4j-over-slf4j')
     }
+    implementation('org.apache.storm:flux-core') {
+        exclude(group: 'commons-cli', module: 'commons-cli')
+    }
 
     api('org.squirrelframework:squirrel-foundation') {
         exclude group: 'org.slf4j', module: 'slf4j-log4j12'
@@ -88,21 +91,15 @@ sourceSets {
 }
 
 configurations {
-    stormFluxArtifacts {
-        dependencies {
-            stormFluxArtifacts('org.apache.storm:flux-core:1.2.1') {
-                exclude(group: 'commons-cli', module: 'commons-cli')
-            }
-        }
+    apiElements {
+        // Below are dependencies bundled in org.apache.storm:flux-core:1.2.1
         outgoing {
-            capability("${project.group}:${project.name}-flux:${project.version}")
-            // Below are dependencies bundled in org.apache.storm:flux-core:1.1.0
             capability('commons-cli:commons-cli:1.2')
             capability('commons-codec:commons-codec:1.6')
             capability('commons-logging:commons-logging:1.1.3')
             capability('org.apache.httpcomponents:httpclient:4.3.3')
             capability('org.apache.httpcomponents:httpcore:4.4.1')
-            capability('org.apache.storm:flux-wrappers:1.1.0')
+            capability('org.apache.storm:flux-wrappers:1.2.1')
             capability('org.yaml:snakeyaml:1.11')
         }
     }

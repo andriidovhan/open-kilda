@@ -3,36 +3,6 @@
 
 environment.naming.prefix = {{ getv "/kilda_environment_naming_prefix" }}
 
-isl.latency.parallelism = {{ getv "/kilda_storm_isl_latency_parallelism" }}
-parallelism.new = {{ getv "/kilda_storm_parallelism_level_new" }}
-parallelism = {{ getv "/kilda_storm_parallelism_level" }}
-flow.hs.parallelism = {{ getv "/kilda_storm_flow_hs_parallelism" }}
-workers = {{ getv "/kilda_storm_parallelism_workers_count" }}
-
-#######
-# Storm-specific topology configuration.
-#
-# Configure timeout milliseconds used for disruptor queue wait strategy. Can be used to tradeoff latency vs. CPU usage.
-{{- if exists "/kilda_storm_disruptor_wait_timeout" }}
-disruptor.wait.timeout = {{ getv "/kilda_storm_disruptor_wait_timeout" }}
-{{- else }}
-# disruptor.wait.timeout =
-{{- end }}
-#
-# The maximum age in milliseconds a batch can be before being sent to the next thread.
-{{- if exists "/kilda_storm_disruptor_batch_timeout" }}
-disruptor.batch.timeout = {{ getv "/kilda_storm_disruptor_batch_timeout" }}
-{{- else }}
-# disruptor.batch.timeout =
-{{- end }}
-#
-# The amount of milliseconds a spout should sleep when emits no tuples.
-{{- if exists "/kilda_storm_spout_wait_sleep_timeout" }}
-spout.wait.sleep.time = {{ getv "/kilda_storm_spout_wait_sleep_timeout" }}
-{{- else }}
-# spout.wait.sleep.time =
-{{- end }}
-
 kafka.hosts = {{ getv "/kilda_kafka_hosts" }}
 kafka.partitions.default = 1
 kafka.replication.default = 3
@@ -51,23 +21,12 @@ bfd.port.offset = {{ getv "/kilda_bfd_port_offset" }}
 
 opentsdb.hosts = http://{{ getv "/kilda_opentsdb_hosts" }}:{{ getv "/kilda_opentsdb_port" }}
 opentsdb.timeout = {{ getv "/kilda_opentsdb_timeout" }}
-opentsdb.num.spouts = {{ getv "/kilda_opentsdb_num_spouts" }}
-opentsdb.num.opentsdbfilterbolt = {{ getv "/kilda_opentsdb_num_opentsdbfilterbolt" }}
-opentsdb.num.opentsdbbolt = {{ getv "/kilda_opentsdb_num_opentsdbbolt" }}
-opentsdb.workers.opentsdbolt = {{ getv "/kilda_opentsdb_workers_opentsdbolt" }}
-opentsdb.num.datapointparserbolt = {{ getv "/kilda_opentsdb_num_datapointparserbolt" }}
-opentsdb.workers.datapointparserbolt = {{ getv "/kilda_opentsdb_workers_datapointparserbolt" }}
 opentsdb.batch.size = {{ getv "/kilda_opentsdb_batch_size" }}
 opentsdb.flush.interval = {{ getv "/kilda_opentsdb_flush_interval" }}
-opentsdb.workers = {{ getv "/kilda_opentsdb_workers" }}
 opentsdb.client.chunked-requests.enabled = true
 opentsdb.metric.prefix = {{ getv "/kilda_opentsdb_metric_prefix" }}
 
 statistics.interval = {{ getv "/kilda_statistics_interval" }}
-
-neo4j.uri = bolt://{{ getv "/kilda_neo4j_host" }}:{{ getv "/kilda_neo4j_bolt_port" }}
-neo4j.user = {{ getv "/kilda_neo4j_user" }}
-neo4j.password = {{ getv "/kilda_neo4j_password" }}
 
 {{if not (exists "/single_orientdb")}}
 orientdb.url=remote:{{ getv "/kilda_orientdb_hosts" }}/{{ getv "/kilda_orientdb_database" }}

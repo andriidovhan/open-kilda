@@ -44,18 +44,29 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.storm.Config;
 import org.apache.storm.LocalCluster;
 import org.apache.storm.StormSubmitter;
+import org.apache.storm.flux.model.BoltDef;
+import org.apache.storm.flux.model.PropertyDef;
+import org.apache.storm.flux.model.SpoutDef;
+import org.apache.storm.flux.model.TopologyDef;
+import org.apache.storm.flux.parser.FluxParser;
 import org.apache.storm.kafka.bolt.KafkaBolt;
 import org.apache.storm.kafka.bolt.mapper.FieldNameBasedTupleToKafkaMapper;
 import org.apache.storm.kafka.bolt.selector.DefaultTopicSelector;
 import org.apache.storm.kafka.spout.KafkaSpout;
 import org.apache.storm.kafka.spout.KafkaSpoutConfig;
-import org.apache.storm.spout.SleepSpoutWaitStrategy;
 import org.apache.storm.thrift.TException;
+import org.apache.storm.topology.BoltDeclarer;
+import org.apache.storm.topology.IRichBolt;
+import org.apache.storm.topology.IRichSpout;
+import org.apache.storm.topology.SpoutDeclarer;
+import org.apache.storm.topology.TopologyBuilder;
 import org.apache.storm.tuple.Fields;
 import org.kohsuke.args4j.CmdLineException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -80,17 +91,20 @@ public abstract class AbstractTopology<T extends AbstractTopologyConfig> impleme
     protected final TopologyNamingStrategy topoNamingStrategy;
     protected final MultiPrefixConfigurationProvider configurationProvider;
 
+    protected final TopologyDef topologyDef;
     protected final T topologyConfig;
     private final KafkaConfig kafkaConfig;
 
-    protected AbstractTopology(LaunchEnvironment env, Class<T> topologyConfigClass) {
+    protected AbstractTopology(LaunchEnvironment env, String topologyDefinitionName, Class<T> topologyConfigClass) {
         kafkaNamingStrategy = env.getKafkaNamingStrategy();
         topoNamingStrategy = env.getTopologyNamingStrategy();
 
-        String defaultTopologyName = getDefaultTopologyName();
+        topologyDef = loadTopologyDef(topologyDefinitionName, env.getProperties());
+
+        String defaultTopologyName = getClass().getSimpleName().toLowerCase();
         // Use the default topology name with naming strategy applied only if no specific name provided via CLI.
         topologyName = Optional.ofNullable(env.getTopologyName())
-                .orElse(topoNamingStrategy.stormTopologyName(defaultTopologyName));
+                .orElseGet(() -> topoNamingStrategy.stormTopologyName(defaultTopologyName));
 
         configurationProvider = env.getConfigurationProvider(topologyName,
                 TOPOLOGY_PROPERTIES_DEFAULTS_PREFIX + defaultTopologyName);
@@ -99,12 +113,36 @@ public abstract class AbstractTopology<T extends AbstractTopologyConfig> impleme
         kafkaConfig = configurationProvider.getConfiguration(KafkaConfig.class);
 
         logger.debug("Topology built {}: kafka={}, parallelism={}, workers={}",
-                topologyName, kafkaConfig.getHosts(), topologyConfig.getParallelism(),
-                topologyConfig.getWorkers());
+                topologyName, kafkaConfig.getHosts(), getTopologyParallelism(), getTopologyWorkers());
     }
 
-    protected String getDefaultTopologyName() {
-        return getClass().getSimpleName().toLowerCase();
+    private TopologyDef loadTopologyDef(String topologyDefinitionName, Properties properties) {
+        try {
+            // Check the definition in resources for existence.
+            String yamlResource = format("/%s.yaml", topologyDefinitionName);
+            if (FluxParser.class.getResourceAsStream(yamlResource) == null) {
+                return null;
+            }
+
+            return FluxParser.parseResource(yamlResource, false, true, properties, false);
+        } catch (Exception e) {
+            logger.info("Unable to load topology configuration (definition) file", e);
+            return null;
+        }
+    }
+
+    private Integer getTopologyParallelism() {
+        if (topologyDef != null && topologyDef.getConfig() != null) {
+            return (Integer) topologyDef.getConfig().get("topology.parallelism");
+        }
+        return null;
+    }
+
+    private Integer getTopologyWorkers() {
+        if (topologyDef != null && topologyDef.getConfig() != null) {
+            return (Integer) topologyDef.getConfig().get("topology.workers");
+        }
+        return null;
     }
 
     protected void setup() throws TException, NameCollisionException {
@@ -172,24 +210,17 @@ public abstract class AbstractTopology<T extends AbstractTopologyConfig> impleme
         return kafka;
     }
 
-    protected Config makeStormConfig() {
+    private Config makeStormConfig() {
         Config stormConfig = new Config();
-
-        stormConfig.setNumWorkers(topologyConfig.getWorkers());
-        if (topologyConfig.getDisruptorWaitTimeout() != null) {
-            stormConfig.put(Config.TOPOLOGY_DISRUPTOR_WAIT_TIMEOUT_MILLIS, topologyConfig.getDisruptorWaitTimeout());
-        }
-        if (topologyConfig.getDisruptorBatchTimeout() != null) {
-            stormConfig.put(Config.TOPOLOGY_DISRUPTOR_BATCH_TIMEOUT_MILLIS, topologyConfig.getDisruptorBatchTimeout());
-        }
-        if (topologyConfig.getSpoutWaitSleepTime() != null) {
-            stormConfig.put(Config.TOPOLOGY_SPOUT_WAIT_STRATEGY, SleepSpoutWaitStrategy.class.getName());
-            stormConfig.put(Config.TOPOLOGY_SLEEP_SPOUT_WAIT_STRATEGY_TIME_MS, topologyConfig.getSpoutWaitSleepTime());
+        if (getTopologyWorkers() != null) {
+            stormConfig.setNumWorkers(getTopologyWorkers());
         }
         if (topologyConfig.getUseLocalCluster()) {
-            stormConfig.setMaxTaskParallelism(topologyConfig.getParallelism());
+            stormConfig.setMaxTaskParallelism(getTopologyParallelism());
         }
-
+        if (topologyDef != null && topologyDef.getConfig() != null) {
+            stormConfig.putAll(topologyDef.getConfig());
+        }
         return stormConfig;
     }
 
@@ -213,50 +244,66 @@ public abstract class AbstractTopology<T extends AbstractTopologyConfig> impleme
         return topologyConfig;
     }
 
-    /**
-     * Creates Kafka spout. Transforms received value to {@link Message}.
-     *
-     * @param topic Kafka topic
-     * @return {@link KafkaSpout}
-     */
-    protected KafkaSpout<String, Message> buildKafkaSpout(String topic, String spoutId) {
-        return buildKafkaSpout(Collections.singletonList(topic), spoutId);
+    protected SpoutDeclarer declareKafkaSpout(TopologyBuilder builder, String topic, String spoutId) {
+        return declareKafkaSpout(builder, Collections.singletonList(topic), spoutId);
     }
 
-    /**
-     * Creates Kafka spout with list of topics. Transforms received value to {@link Message}.
-     *
-     * @param topics Kafka topic
-     * @return {@link KafkaSpout}
-     */
-    protected KafkaSpout<String, Message> buildKafkaSpout(List<String> topics, String spoutId) {
+    protected SpoutDeclarer declareKafkaSpout(TopologyBuilder builder, List<String> topics, String spoutId) {
         KafkaSpoutConfig<String, Message> config = getKafkaSpoutConfigBuilder(topics, spoutId).build();
         logger.info("Setup kafka spout: id={}, group={}, subscriptions={}",
                 spoutId, config.getConsumerGroupId(), config.getSubscription().getTopicsString());
-        return new KafkaSpout<>(config);
+        return declareSpout(builder, new KafkaSpout<>(config), spoutId);
+    }
+
+    protected SpoutDeclarer declareSpout(TopologyBuilder builder, IRichSpout spout, String spoutId) {
+        Integer spoutParallelism = null;
+        Integer spoutNumTasks = null;
+        if (topologyDef != null) {
+            SpoutDef spoutDef = topologyDef.getSpoutDef(spoutId);
+            if (spoutDef != null) {
+                spoutParallelism = spoutDef.getParallelism();
+                if (spoutDef.getNumTasks() > 0) {
+                    spoutNumTasks = spoutDef.getNumTasks();
+                }
+                initObjectProperties(spout, spoutDef.getProperties());
+            }
+        }
+        if (spoutParallelism == null) {
+            if (topologyDef != null && topologyDef.getConfig() != null) {
+                spoutParallelism = (Integer) topologyDef.getConfig().get("topology.spouts.parallelism");
+            }
+            if (spoutParallelism == null) {
+                spoutParallelism = getTopologyParallelism();
+            }
+        }
+        SpoutDeclarer spoutDeclarer = builder.setSpout(spoutId, spout, spoutParallelism);
+        if (spoutNumTasks != null) {
+            spoutDeclarer.setNumTasks(spoutNumTasks);
+        }
+        return spoutDeclarer;
     }
 
     /**
      * Creates Kafka spout. Transforms received value to {@link AbstractMessage}.
      *
      * @param topic Kafka topic
-     * @return {@link KafkaSpout}
      */
-    protected KafkaSpout<String, AbstractMessage> buildKafkaSpoutForAbstractMessage(String topic, String spoutId) {
-        return buildKafkaSpoutForAbstractMessage(Collections.singletonList(topic), spoutId);
+    protected SpoutDeclarer declareKafkaSpoutForAbstractMessage(TopologyBuilder builder, String topic, String spoutId) {
+        return declareKafkaSpoutForAbstractMessage(builder, Collections.singletonList(topic), spoutId);
     }
 
     /**
      * Creates Kafka spout with list of topics. Transforms received value to {@link AbstractMessage}.
      *
      * @param topics Kafka topics
-     * @return {@link KafkaSpout}
      */
-    protected KafkaSpout<String, AbstractMessage> buildKafkaSpoutForAbstractMessage(
-            List<String> topics, String spoutId) {
-        return new KafkaSpout<>(makeKafkaSpoutConfig(topics, spoutId, AbstractMessageDeserializer.class)
-                .setRecordTranslator(new AbstractMessageTranslator())
-                .build());
+    protected SpoutDeclarer declareKafkaSpoutForAbstractMessage(TopologyBuilder builder,
+                                                                List<String> topics, String spoutId) {
+        KafkaSpout<?, ?> spout = new KafkaSpout<>(
+                makeKafkaSpoutConfig(topics, spoutId, AbstractMessageDeserializer.class)
+                        .setRecordTranslator(new AbstractMessageTranslator())
+                        .build());
+        return declareSpout(builder, spout, spoutId);
     }
 
     /**
@@ -326,6 +373,10 @@ public abstract class AbstractTopology<T extends AbstractTopologyConfig> impleme
         return config;
     }
 
+    private String makeKafkaGroupName(String spoutId) {
+        return kafkaNamingStrategy.kafkaConsumerGroupName(format("%s__%s", topologyName, spoutId));
+    }
+
     protected <V> KafkaBolt<String, V> makeKafkaBolt(String topic, Class<? extends Serializer<V>> valueEncoder) {
         return makeKafkaBolt(valueEncoder)
                 .withTopicSelector(topic);
@@ -340,7 +391,60 @@ public abstract class AbstractTopology<T extends AbstractTopologyConfig> impleme
                 .withTupleToKafkaMapper(new FieldNameBasedTupleToKafkaMapper<>());
     }
 
-    private String makeKafkaGroupName(String spoutId) {
-        return kafkaNamingStrategy.kafkaConsumerGroupName(format("%s__%s", topologyName, spoutId));
+    protected BoltDeclarer declareBolt(TopologyBuilder builder, IRichBolt bolt, String boltId) {
+        Integer boltParallelism = null;
+        Integer boltNumTasks = null;
+        if (topologyDef != null) {
+            BoltDef boltDef = topologyDef.getBoltDef(boltId);
+            if (boltDef != null) {
+                boltParallelism = boltDef.getParallelism();
+                if (boltDef.getNumTasks() > 0) {
+                    boltNumTasks = boltDef.getNumTasks();
+                }
+                initObjectProperties(bolt, boltDef.getProperties());
+            }
+        }
+        if (boltParallelism == null) {
+            if (topologyDef != null && topologyDef.getConfig() != null) {
+                boltParallelism = (Integer) topologyDef.getConfig().get("topology.bolts.parallelism");
+            }
+            if (boltParallelism == null) {
+                boltParallelism = getTopologyParallelism();
+            }
+        }
+        BoltDeclarer boltDeclarer = builder.setBolt(boltId, bolt, boltParallelism);
+        if (boltNumTasks != null) {
+            boltDeclarer.setNumTasks(boltNumTasks);
+        }
+        return boltDeclarer;
+    }
+
+    private void initObjectProperties(Object obj, List<PropertyDef> properties) {
+        if (properties == null) {
+            return;
+        }
+        for (PropertyDef onePropertyDef : properties) {
+            if (onePropertyDef.getValue() == null) {
+                throw new IllegalArgumentException("Unsupported property provided: " + onePropertyDef);
+            }
+
+            try {
+                setProperty(obj, onePropertyDef.getName(), onePropertyDef.getValue());
+            } catch (InvocationTargetException | IllegalAccessException e) {
+                throw new IllegalArgumentException("Failed to set property: " + onePropertyDef, e);
+            }
+        }
+    }
+
+    private void setProperty(Object obj, String fieldName, Object fieldValue)
+            throws InvocationTargetException, IllegalAccessException {
+        Method[] methods = obj.getClass().getMethods();
+        String methodName = "set" + Character.toUpperCase(fieldName.toCharArray()[0]) + fieldName.substring(1);
+        for (Method oneMethod : methods) {
+            if (oneMethod.getName().equals(methodName)) {
+                logger.debug("Setting '{}' to the property {} of {}", fieldValue, fieldName, obj);
+                oneMethod.invoke(obj, fieldValue);
+            }
+        }
     }
 }

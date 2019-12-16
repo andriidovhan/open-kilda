@@ -1,23 +1,5 @@
 environment.naming.prefix = 
 
-isl.latency.parallelism = 4
-parallelism.new = 2
-parallelism = 1
-flow.hs.parallelism = 4
-workers = 1
-
-#######
-# Storm-specific topology configuration.
-#
-# Configure timeout milliseconds used for disruptor queue wait strategy. Can be used to tradeoff latency vs. CPU usage.
-# disruptor.wait.timeout = 1000
-#
-# The maximum age in milliseconds a batch can be before being sent to the next thread.
-# disruptor.batch.timeout = 10
-#
-# The amount of milliseconds a spout should sleep when emits no tuples.
-# spout.wait.sleep.time = 100
-
 kafka.hosts = kafka.pendev:9092
 kafka.partitions.default = 1
 kafka.replication.default = 3
@@ -52,15 +34,8 @@ bfd.port.offset = 200
 
 opentsdb.hosts = http://opentsdb.pendev:4242
 opentsdb.timeout = 30
-opentsdb.num.spouts = 1
-opentsdb.num.opentsdbfilterbolt = 1
-opentsdb.num.opentsdbbolt = 1
-opentsdb.workers.opentsdbolt = 1
-opentsdb.num.datapointparserbolt = 1
-opentsdb.workers.datapointparserbolt = 1
 opentsdb.batch.size = 50
 opentsdb.flush.interval = 1
-opentsdb.workers = 1
 opentsdb.client.chunked-requests.enabled = true
 opentsdb.metric.prefix = kilda.
 
@@ -93,7 +68,6 @@ discovery.timeout = 15
 discovery.db.write.repeats.time.frame = 30
 
 # all following ping intervals are in seconds
-#flow.ping.scale-factor = 2
 #flow.ping.interval = 10
 #flow.ping.timeout = 2
 #flow.ping.fail.delay = 45

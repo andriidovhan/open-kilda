@@ -15,7 +15,6 @@
 
 package org.openkilda.wfm.topology.network;
 
-import org.openkilda.messaging.Message;
 import org.openkilda.persistence.PersistenceManager;
 import org.openkilda.persistence.spi.PersistenceProvider;
 import org.openkilda.wfm.LaunchEnvironment;
@@ -51,7 +50,6 @@ import org.openkilda.wfm.topology.utils.MessageKafkaTranslator;
 
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.kafka.bolt.KafkaBolt;
-import org.apache.storm.kafka.spout.KafkaSpout;
 import org.apache.storm.topology.TopologyBuilder;
 import org.apache.storm.tuple.Fields;
 
@@ -62,7 +60,7 @@ public class NetworkTopology extends AbstractTopology<NetworkTopologyConfig> {
     private final NetworkOptions options;
 
     public NetworkTopology(LaunchEnvironment env) {
-        super(env, NetworkTopologyConfig.class);
+        super(env, "network-topology", NetworkTopologyConfig.class);
 
         persistenceManager = PersistenceProvider.getInstance().getPersistenceManager(configurationProvider);
         options = new NetworkOptions(getConfig());
@@ -73,75 +71,70 @@ public class NetworkTopology extends AbstractTopology<NetworkTopologyConfig> {
      */
     @Override
     public StormTopology createTopology() {
-        int scaleFactor = topologyConfig.getScaleFactor();
-
         TopologyBuilder topology = new TopologyBuilder();
 
-        inputSwitchManager(topology, scaleFactor);
-        switchManagerRouter(topology, scaleFactor);
-        workerSwitchManager(topology, scaleFactor);
+        inputSwitchManager(topology);
+        switchManagerRouter(topology);
+        workerSwitchManager(topology);
 
-        inputSpeaker(topology, scaleFactor);
-        inputSpeakerRules(topology, scaleFactor);
-        workerSpeaker(topology, scaleFactor);
-        workerSpeakerRules(topology, scaleFactor);
+        inputSpeaker(topology);
+        inputSpeakerRules(topology);
+        workerSpeaker(topology);
+        workerSpeakerRules(topology);
 
         coordinator(topology);
         networkHistory(topology);
 
-        speakerRouter(topology, scaleFactor);
-        speakerRulesRouter(topology, scaleFactor);
-        watchList(topology, scaleFactor);
-        watcher(topology, scaleFactor);
-        decisionMaker(topology, scaleFactor);
+        speakerRouter(topology);
+        speakerRulesRouter(topology);
+        watchList(topology);
+        watcher(topology);
+        decisionMaker(topology);
 
-        switchHandler(topology, scaleFactor);
-        portHandler(topology, scaleFactor);
-        bfdPortHandler(topology, scaleFactor);
-        uniIslHandler(topology, scaleFactor);
-        islHandler(topology, scaleFactor);
+        switchHandler(topology);
+        portHandler(topology);
+        bfdPortHandler(topology);
+        uniIslHandler(topology);
+        islHandler(topology);
 
-        outputSpeaker(topology, scaleFactor);
-        outputSwitchManager(topology, scaleFactor);
-        outputSpeakerRules(topology, scaleFactor);
-        outputReroute(topology, scaleFactor);
-        outputStatus(topology, scaleFactor);
-        outputNorthbound(topology, scaleFactor);
+        outputSpeaker(topology);
+        outputSwitchManager(topology);
+        outputSpeakerRules(topology);
+        outputReroute(topology);
+        outputStatus(topology);
+        outputNorthbound(topology);
 
-        historyBolt(topology, scaleFactor);
+        historyBolt(topology);
 
         return topology.createTopology();
     }
 
     private void coordinator(TopologyBuilder topology) {
-        topology.setSpout(CoordinatorSpout.ID, new CoordinatorSpout(), 1);
+        declareSpout(topology, new CoordinatorSpout(), CoordinatorSpout.ID);
 
         Fields keyGrouping = new Fields(MessageKafkaTranslator.KEY_FIELD);
-        topology.setBolt(CoordinatorBolt.ID, new CoordinatorBolt(), 1)
+        declareBolt(topology, new CoordinatorBolt(), CoordinatorBolt.ID)
                 .allGrouping(CoordinatorSpout.ID)
                 .fieldsGrouping(SpeakerWorker.BOLT_ID, CoordinatorBolt.INCOME_STREAM, keyGrouping)
                 .fieldsGrouping(SwitchManagerWorker.BOLT_ID, CoordinatorBolt.INCOME_STREAM, keyGrouping);
     }
 
-    private void inputSpeaker(TopologyBuilder topology, int scaleFactor) {
-        KafkaSpout<String, Message> spout = buildKafkaSpout(
+    private void inputSpeaker(TopologyBuilder topology) {
+        declareKafkaSpout(topology,
                 topologyConfig.getTopoDiscoTopic(), ComponentId.INPUT_SPEAKER.toString());
-        topology.setSpout(ComponentId.INPUT_SPEAKER.toString(), spout, scaleFactor);
     }
 
-    private void inputSwitchManager(TopologyBuilder topology, int scaleFactor) {
-        KafkaSpout<String, Message> spout = buildKafkaSpout(
+    private void inputSwitchManager(TopologyBuilder topology) {
+        declareKafkaSpout(topology,
                 topologyConfig.getKafkaSwitchManagerResponseTopic(), ComponentId.INPUT_SWMANAGER.toString());
-        topology.setSpout(ComponentId.INPUT_SWMANAGER.toString(), spout, scaleFactor);
     }
 
-    private void inputSpeakerRules(TopologyBuilder topology, int scaleFactor) {
-        KafkaSpout<String, Message> spout = buildKafkaSpout(
+    private void inputSpeakerRules(TopologyBuilder topology) {
+        declareKafkaSpout(topology,
                 topologyConfig.getSwitchManagerTopic(), ComponentId.INPUT_SPEAKER_RULES.toString());
-        topology.setSpout(ComponentId.INPUT_SPEAKER_RULES.toString(), spout, scaleFactor);
     }
 
-    private void workerSpeakerRules(TopologyBuilder topology, int scaleFactor) {
+    private void workerSpeakerRules(TopologyBuilder topology) {
         long speakerIoTimeout = TimeUnit.SECONDS.toMillis(topologyConfig.getSpeakerIoTimeoutSeconds());
         WorkerBolt.Config workerConfig = SpeakerRulesWorker.Config.builder()
                 .hubComponent(IslHandler.BOLT_ID)
@@ -151,14 +144,14 @@ public class NetworkTopology extends AbstractTopology<NetworkTopologyConfig> {
                 .build();
         SpeakerRulesWorker speakerRulesWorker = new SpeakerRulesWorker(workerConfig);
         Fields keyGrouping = new Fields(MessageKafkaTranslator.KEY_FIELD);
-        topology.setBolt(SpeakerRulesWorker.BOLT_ID, speakerRulesWorker, scaleFactor)
+        declareBolt(topology, speakerRulesWorker, SpeakerRulesWorker.BOLT_ID)
                 .directGrouping(CoordinatorBolt.ID)
                 .fieldsGrouping(workerConfig.getHubComponent(), IslHandler.STREAM_SPEAKER_RULES_ID, keyGrouping)
                 .fieldsGrouping(workerConfig.getWorkerSpoutComponent(),
                         SpeakerRulesRouter.STREAM_WORKER_ID, keyGrouping);
     }
 
-    private void workerSpeaker(TopologyBuilder topology, int scaleFactor) {
+    private void workerSpeaker(TopologyBuilder topology) {
         long speakerIoTimeout = TimeUnit.SECONDS.toMillis(topologyConfig.getSpeakerIoTimeoutSeconds());
         WorkerBolt.Config workerConfig = SpeakerWorker.Config.builder()
                 .hubComponent(BfdPortHandler.BOLT_ID)
@@ -168,20 +161,20 @@ public class NetworkTopology extends AbstractTopology<NetworkTopologyConfig> {
                 .build();
         SpeakerWorker speakerWorker = new SpeakerWorker(workerConfig);
         Fields keyGrouping = new Fields(MessageKafkaTranslator.KEY_FIELD);
-        topology.setBolt(SpeakerWorker.BOLT_ID, speakerWorker, scaleFactor)
+        declareBolt(topology, speakerWorker, SpeakerWorker.BOLT_ID)
                 .directGrouping(CoordinatorBolt.ID)
                 .fieldsGrouping(workerConfig.getHubComponent(), BfdPortHandler.STREAM_SPEAKER_ID, keyGrouping)
                 .fieldsGrouping(workerConfig.getWorkerSpoutComponent(), SpeakerRouter.STREAM_WORKER_ID, keyGrouping);
     }
 
-    private void speakerRouter(TopologyBuilder topology, int scaleFactor) {
+    private void speakerRouter(TopologyBuilder topology) {
         Fields keyGrouping = new Fields(MessageKafkaTranslator.KEY_FIELD);
         SpeakerRouter bolt = new SpeakerRouter();
-        topology.setBolt(SpeakerRouter.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, SpeakerRouter.BOLT_ID)
                 .fieldsGrouping(ComponentId.INPUT_SPEAKER.toString(), keyGrouping);
     }
 
-    private void workerSwitchManager(TopologyBuilder topology, int scaleFactor) {
+    private void workerSwitchManager(TopologyBuilder topology) {
         long swmanagerIoTimeout = TimeUnit.SECONDS.toMillis(topologyConfig.getSwitchManagerIoTimeoutSeconds());
         WorkerBolt.Config workerConfig = SwitchManagerWorker.Config.builder()
                 .hubComponent(SwitchHandler.BOLT_ID)
@@ -191,78 +184,78 @@ public class NetworkTopology extends AbstractTopology<NetworkTopologyConfig> {
                 .build();
         SwitchManagerWorker switchManagerWorker = new SwitchManagerWorker(workerConfig, options);
         Fields keyGrouping = new Fields(MessageKafkaTranslator.FIELD_ID_KEY);
-        topology.setBolt(SwitchManagerWorker.BOLT_ID, switchManagerWorker, scaleFactor)
+        declareBolt(topology, switchManagerWorker, SwitchManagerWorker.BOLT_ID)
                 .directGrouping(CoordinatorBolt.ID)
                 .fieldsGrouping(workerConfig.getHubComponent(), SwitchHandler.STREAM_SWMANAGER_ID, keyGrouping)
                 .fieldsGrouping(workerConfig.getWorkerSpoutComponent(),
                         SwitchManagerRouter.STREAM_WORKER_ID, keyGrouping);
     }
 
-    private void switchManagerRouter(TopologyBuilder topology, int scaleFactor) {
+    private void switchManagerRouter(TopologyBuilder topology) {
         Fields keyGrouping = new Fields(MessageKafkaTranslator.FIELD_ID_KEY);
         SwitchManagerRouter bolt = new SwitchManagerRouter();
-        topology.setBolt(SwitchManagerRouter.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, SwitchManagerRouter.BOLT_ID)
                 .fieldsGrouping(ComponentId.INPUT_SWMANAGER.toString(), keyGrouping);
     }
 
-    private void speakerRulesRouter(TopologyBuilder topology, int scaleFactor) {
+    private void speakerRulesRouter(TopologyBuilder topology) {
         Fields keyGrouping = new Fields(MessageKafkaTranslator.KEY_FIELD);
         SpeakerRulesRouter bolt = new SpeakerRulesRouter();
-        topology.setBolt(SpeakerRulesRouter.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, SpeakerRulesRouter.BOLT_ID)
                 .fieldsGrouping(ComponentId.INPUT_SPEAKER_RULES.toString(), keyGrouping);
     }
 
     private void networkHistory(TopologyBuilder topology) {
         NetworkHistory spout = new NetworkHistory(persistenceManager);
-        topology.setSpout(NetworkHistory.SPOUT_ID, spout, 1);
+        declareSpout(topology, spout, NetworkHistory.SPOUT_ID);
     }
 
-    private void watchList(TopologyBuilder topology, int scaleFactor) {
+    private void watchList(TopologyBuilder topology) {
         WatchListHandler bolt = new WatchListHandler(options);
         Fields portGrouping = new Fields(PortHandler.FIELD_ID_DATAPATH, PortHandler.FIELD_ID_PORT_NUMBER);
         Fields uniIslGrouping = new Fields(UniIslHandler.FIELD_ID_DATAPATH, UniIslHandler.FIELD_ID_PORT_NUMBER);
         Fields islGrouping = new Fields(IslHandler.FIELD_ID_DATAPATH, IslHandler.FIELD_ID_PORT_NUMBER);
-        topology.setBolt(WatchListHandler.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, WatchListHandler.BOLT_ID)
                 .allGrouping(CoordinatorSpout.ID)
                 .fieldsGrouping(PortHandler.BOLT_ID, PortHandler.STREAM_POLL_ID, portGrouping)
                 .fieldsGrouping(UniIslHandler.BOLT_ID, UniIslHandler.STREAM_POLL_ID, uniIslGrouping)
                 .fieldsGrouping(IslHandler.BOLT_ID, IslHandler.STREAM_POLL_ID, islGrouping);
     }
 
-    private void watcher(TopologyBuilder topology, int scaleFactor) {
+    private void watcher(TopologyBuilder topology) {
         WatcherHandler bolt = new WatcherHandler(options);
         Fields watchListGrouping = new Fields(WatchListHandler.FIELD_ID_DATAPATH,
                 WatchListHandler.FIELD_ID_PORT_NUMBER);
         Fields speakerGrouping = new Fields(SpeakerRouter.FIELD_ID_DATAPATH, SpeakerRouter.FIELD_ID_PORT_NUMBER);
-        topology.setBolt(WatcherHandler.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, WatcherHandler.BOLT_ID)
                 .allGrouping(CoordinatorSpout.ID)
                 .fieldsGrouping(WatchListHandler.BOLT_ID, watchListGrouping)
                 .fieldsGrouping(SpeakerRouter.BOLT_ID, SpeakerRouter.STREAM_WATCHER_ID, speakerGrouping);
     }
 
-    private void decisionMaker(TopologyBuilder topology, int scaleFactor) {
+    private void decisionMaker(TopologyBuilder topology) {
         DecisionMakerHandler bolt = new DecisionMakerHandler(options);
         Fields watcherGrouping = new Fields(WatcherHandler.FIELD_ID_DATAPATH, WatcherHandler.FIELD_ID_PORT_NUMBER);
-        topology.setBolt(DecisionMakerHandler.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, DecisionMakerHandler.BOLT_ID)
                 .allGrouping(CoordinatorSpout.ID)
                 .fieldsGrouping(WatcherHandler.BOLT_ID, watcherGrouping);
     }
 
-    private void switchHandler(TopologyBuilder topology, int scaleFactor) {
+    private void switchHandler(TopologyBuilder topology) {
         SwitchHandler bolt = new SwitchHandler(options, persistenceManager);
         Fields grouping = new Fields(SpeakerRouter.FIELD_ID_DATAPATH);
-        topology.setBolt(SwitchHandler.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, SwitchHandler.BOLT_ID)
                 .fieldsGrouping(NetworkHistory.SPOUT_ID, grouping)
                 .fieldsGrouping(SpeakerRouter.BOLT_ID, grouping)
                 .directGrouping(SwitchManagerWorker.BOLT_ID, SwitchManagerWorker.STREAM_HUB_ID);
     }
 
-    private void portHandler(TopologyBuilder topology, int scaleFactor) {
+    private void portHandler(TopologyBuilder topology) {
         PortHandler bolt = new PortHandler(options, persistenceManager);
         Fields endpointGrouping = new Fields(SwitchHandler.FIELD_ID_DATAPATH, SwitchHandler.FIELD_ID_PORT_NUMBER);
         Fields decisionMakerGrouping = new Fields(DecisionMakerHandler.FIELD_ID_DATAPATH,
                 DecisionMakerHandler.FIELD_ID_PORT_NUMBER);
-        topology.setBolt(PortHandler.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, PortHandler.BOLT_ID)
                 .allGrouping(CoordinatorSpout.ID)
                 .fieldsGrouping(SwitchHandler.BOLT_ID, SwitchHandler.STREAM_PORT_ID, endpointGrouping)
                 .fieldsGrouping(DecisionMakerHandler.BOLT_ID, decisionMakerGrouping)
@@ -270,103 +263,103 @@ public class NetworkTopology extends AbstractTopology<NetworkTopologyConfig> {
                 .fieldsGrouping(WatcherHandler.BOLT_ID, WatcherHandler.STREAM_PORT_ID, endpointGrouping);
     }
 
-    private void bfdPortHandler(TopologyBuilder topology, int scaleFactor) {
+    private void bfdPortHandler(TopologyBuilder topology) {
         BfdPortHandler bolt = new BfdPortHandler(persistenceManager);
         Fields switchGrouping = new Fields(SwitchHandler.FIELD_ID_DATAPATH);
         Fields islGrouping = new Fields(IslHandler.FIELD_ID_DATAPATH);
-        topology.setBolt(BfdPortHandler.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, BfdPortHandler.BOLT_ID)
                 .fieldsGrouping(SwitchHandler.BOLT_ID, SwitchHandler.STREAM_BFD_PORT_ID, switchGrouping)
                 .fieldsGrouping(IslHandler.BOLT_ID, IslHandler.STREAM_BFD_PORT_ID, islGrouping)
                 .directGrouping(SpeakerWorker.BOLT_ID, SpeakerWorker.STREAM_HUB_ID)
                 .allGrouping(SpeakerRouter.BOLT_ID, SpeakerRouter.STREAM_BCAST_ID);
     }
 
-    private void uniIslHandler(TopologyBuilder topology, int scaleFactor) {
+    private void uniIslHandler(TopologyBuilder topology) {
         UniIslHandler bolt = new UniIslHandler();
         Fields portGrouping = new Fields(PortHandler.FIELD_ID_DATAPATH, PortHandler.FIELD_ID_PORT_NUMBER);
         Fields bfdPortGrouping = new Fields(BfdPortHandler.FIELD_ID_DATAPATH, BfdPortHandler.FIELD_ID_PORT_NUMBER);
         Fields islGrouping = new Fields(IslHandler.FIELD_ID_DATAPATH, IslHandler.FIELD_ID_PORT_NUMBER);
-        topology.setBolt(UniIslHandler.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, UniIslHandler.BOLT_ID)
                 .fieldsGrouping(PortHandler.BOLT_ID, portGrouping)
                 .fieldsGrouping(BfdPortHandler.BOLT_ID, BfdPortHandler.STREAM_UNIISL_ID, bfdPortGrouping)
                 .fieldsGrouping(IslHandler.BOLT_ID, IslHandler.STREAM_UNIISL_ID, islGrouping);
     }
 
-    private void islHandler(TopologyBuilder topology, int scaleFactor) {
+    private void islHandler(TopologyBuilder topology) {
         IslHandler bolt = new IslHandler(persistenceManager, options);
         Fields islGrouping = new Fields(UniIslHandler.FIELD_ID_ISL_SOURCE, UniIslHandler.FIELD_ID_ISL_DEST);
-        topology.setBolt(IslHandler.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, IslHandler.BOLT_ID)
                 .fieldsGrouping(UniIslHandler.BOLT_ID, islGrouping)
                 .fieldsGrouping(SpeakerRouter.BOLT_ID, SpeakerRouter.STREAM_ISL_ID, islGrouping)
                 .directGrouping(SpeakerRulesWorker.BOLT_ID, SpeakerRulesWorker.STREAM_HUB_ID);
     }
 
-    private void outputSpeaker(TopologyBuilder topology, int scaleFactor) {
+    private void outputSpeaker(TopologyBuilder topology) {
         SpeakerEncoder bolt = new SpeakerEncoder();
-        topology.setBolt(SpeakerEncoder.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, SpeakerEncoder.BOLT_ID)
                 .shuffleGrouping(WatcherHandler.BOLT_ID, WatcherHandler.STREAM_SPEAKER_ID)
                 .shuffleGrouping(SpeakerWorker.BOLT_ID);
 
         KafkaBolt output = buildKafkaBolt(topologyConfig.getKafkaSpeakerDiscoTopic());
-        topology.setBolt(ComponentId.SPEAKER_OUTPUT.toString(), output, scaleFactor)
+        declareBolt(topology, output, ComponentId.SPEAKER_OUTPUT.toString())
                 .shuffleGrouping(SpeakerEncoder.BOLT_ID);
     }
 
-    private void outputSwitchManager(TopologyBuilder topology, int scaleFactor) {
+    private void outputSwitchManager(TopologyBuilder topology) {
         SwitchManagerEncoder bolt = new SwitchManagerEncoder();
-        topology.setBolt(SwitchManagerEncoder.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, SwitchManagerEncoder.BOLT_ID)
                 .shuffleGrouping(SwitchManagerWorker.BOLT_ID);
 
         KafkaBolt output = buildKafkaBolt(topologyConfig.getKafkaSwitchManagerRequestTopic());
-        topology.setBolt(ComponentId.SWMANAGER_OUTPUT.toString(), output, scaleFactor)
+        declareBolt(topology, output, ComponentId.SWMANAGER_OUTPUT.toString())
                 .shuffleGrouping(SwitchManagerEncoder.BOLT_ID);
     }
 
-    private void outputSpeakerRules(TopologyBuilder topology, int scaleFactor) {
+    private void outputSpeakerRules(TopologyBuilder topology) {
         SpeakerRulesEncoder encoderRules = new SpeakerRulesEncoder();
-        topology.setBolt(SpeakerRulesEncoder.BOLT_ID, encoderRules, scaleFactor)
+        declareBolt(topology, encoderRules, SpeakerRulesEncoder.BOLT_ID)
                 .shuffleGrouping(SpeakerRulesWorker.BOLT_ID);
 
         KafkaBolt outputRules = buildKafkaBolt(topologyConfig.getSpeakerTopic());
-        topology.setBolt(ComponentId.SPEAKER_RULES_OUTPUT.toString(), outputRules, scaleFactor)
+        declareBolt(topology, outputRules, ComponentId.SPEAKER_RULES_OUTPUT.toString())
                 .shuffleGrouping(SpeakerRulesEncoder.BOLT_ID);
 
     }
 
-    private void outputReroute(TopologyBuilder topology, int scaleFactor) {
+    private void outputReroute(TopologyBuilder topology) {
         RerouteEncoder bolt = new RerouteEncoder();
-        topology.setBolt(RerouteEncoder.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, RerouteEncoder.BOLT_ID)
                 .shuffleGrouping(IslHandler.BOLT_ID, IslHandler.STREAM_REROUTE_ID)
                 .shuffleGrouping(SwitchHandler.BOLT_ID, SwitchHandler.STREAM_REROUTE_ID);
 
         KafkaBolt output = buildKafkaBolt(topologyConfig.getKafkaTopoRerouteTopic());
-        topology.setBolt(ComponentId.REROUTE_OUTPUT.toString(), output, scaleFactor)
+        declareBolt(topology, output, ComponentId.REROUTE_OUTPUT.toString())
                 .shuffleGrouping(RerouteEncoder.BOLT_ID);
     }
 
-    private void outputStatus(TopologyBuilder topology, int scaleFactor) {
+    private void outputStatus(TopologyBuilder topology) {
         StatusEncoder bolt = new StatusEncoder();
-        topology.setBolt(StatusEncoder.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, StatusEncoder.BOLT_ID)
                 .shuffleGrouping(IslHandler.BOLT_ID, IslHandler.STREAM_STATUS_ID);
 
         KafkaBolt output = buildKafkaBolt(topologyConfig.getKafkaNetworkIslStatusTopic());
-        topology.setBolt(ComponentId.STATUS_OUTPUT.toString(), output, scaleFactor)
+        declareBolt(topology, output, ComponentId.STATUS_OUTPUT.toString())
                 .shuffleGrouping(StatusEncoder.BOLT_ID);
     }
 
-    private void outputNorthbound(TopologyBuilder topology, int scaleFactor) {
+    private void outputNorthbound(TopologyBuilder topology) {
         NorthboundEncoder bolt = new NorthboundEncoder();
-        topology.setBolt(NorthboundEncoder.BOLT_ID, bolt, scaleFactor)
+        declareBolt(topology, bolt, NorthboundEncoder.BOLT_ID)
                 .shuffleGrouping(PortHandler.BOLT_ID, PortHandler.STREAM_NORTHBOUND_ID);
 
         KafkaBolt kafkaNorthboundBolt = buildKafkaBolt(topologyConfig.getKafkaNorthboundTopic());
-        topology.setBolt(ComponentId.NB_OUTPUT.toString(), kafkaNorthboundBolt, scaleFactor)
+        declareBolt(topology, kafkaNorthboundBolt, ComponentId.NB_OUTPUT.toString())
                 .shuffleGrouping(NorthboundEncoder.BOLT_ID);
     }
 
-    private void historyBolt(TopologyBuilder topology, int scaleFactor) {
+    private void historyBolt(TopologyBuilder topology) {
         HistoryHandler bolt = new HistoryHandler(persistenceManager);
-        topology.setBolt(ComponentId.HISTORY_HANDLER.toString(), bolt, scaleFactor)
+        declareBolt(topology, bolt, ComponentId.HISTORY_HANDLER.toString())
                 .shuffleGrouping(PortHandler.BOLT_ID, PortHandler.STREAM_HISTORY_ID);
     }
 
