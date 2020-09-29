@@ -16,6 +16,7 @@
 package org.openkilda.wfm.topology.flowhs.fsm.update.actions;
 
 import org.openkilda.floodlight.api.request.factory.FlowSegmentRequestFactory;
+import org.openkilda.floodlight.api.request.factory.TransitFlowLoopSegmentRequestFactory;
 import org.openkilda.model.Flow;
 import org.openkilda.model.FlowPath;
 import org.openkilda.persistence.PersistenceManager;
@@ -35,6 +36,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class InstallNonIngressRulesAction
@@ -58,15 +61,15 @@ public class InstallNonIngressRulesAction
         // primary path
         FlowPath newPrimaryForward = getFlowPath(flow, stateMachine.getNewPrimaryForwardPath());
         FlowPath newPrimaryReverse = getFlowPath(flow, stateMachine.getNewPrimaryReversePath());
-        Collection<FlowSegmentRequestFactory> commands = buildCommands(commandBuilder, stateMachine.getCommandContext(),
-                flow, newPrimaryForward, newPrimaryReverse, stateMachine.getEndpointUpdate());
+        Collection<FlowSegmentRequestFactory> commands = buildCommands(commandBuilder, stateMachine,
+                flow, newPrimaryForward, newPrimaryReverse);
 
         // protected path
         if (stateMachine.getNewProtectedForwardPath() != null && stateMachine.getNewProtectedReversePath() != null) {
             FlowPath newProtectedForward = getFlowPath(flow, stateMachine.getNewProtectedForwardPath());
             FlowPath newProtectedReverse = getFlowPath(flow, stateMachine.getNewProtectedReversePath());
-            commands.addAll(buildCommands(commandBuilder, stateMachine.getCommandContext(), flow,
-                    newProtectedForward, newProtectedReverse, stateMachine.getEndpointUpdate()));
+            commands.addAll(buildCommands(commandBuilder, stateMachine, flow,
+                    newProtectedForward, newProtectedReverse));
         }
 
         // emitting
@@ -84,19 +87,56 @@ public class InstallNonIngressRulesAction
     }
 
     private Collection<FlowSegmentRequestFactory> buildCommands(FlowCommandBuilder commandBuilder,
-                                                                CommandContext context, Flow flow,
-                                                                FlowPath path, FlowPath oppositePath,
-                                                                FlowUpdateFsm.EndpointUpdate endpointUpdate) {
-        switch (endpointUpdate) {
+                                                                FlowUpdateFsm stateMachine, Flow flow,
+                                                                FlowPath path, FlowPath oppositePath) {
+        CommandContext context = stateMachine.getCommandContext();
+        switch (stateMachine.getEndpointUpdate()) {
             case BOTH:
                 return new ArrayList<>(commandBuilder.buildEgressOnly(context, flow, path, oppositePath));
             case SOURCE:
-                return new ArrayList<>(commandBuilder.buildEgressOnlyOneDirection(context, flow, oppositePath, path));
+                return buildCommandsForSourceUpdate(commandBuilder, stateMachine, flow, path, oppositePath, context);
             case DESTINATION:
-                return new ArrayList<>(commandBuilder.buildEgressOnlyOneDirection(context, flow, path, oppositePath));
+                return buildCommandsForDestinationUpdate(commandBuilder, stateMachine, flow, path, oppositePath,
+                        context);
             default:
                 return new ArrayList<>(commandBuilder.buildAllExceptIngress(context, flow, path, oppositePath));
 
+        }
+    }
+
+    private Collection<FlowSegmentRequestFactory> buildCommandsForSourceUpdate(
+            FlowCommandBuilder commandBuilder, FlowUpdateFsm stateMachine, Flow flow,
+            FlowPath path, FlowPath oppositePath, CommandContext context) {
+        switch (stateMachine.getFlowLoopOperation()) {
+            case NONE:
+                return new ArrayList<>(commandBuilder
+                        .buildEgressOnlyOneDirection(context, flow, oppositePath, path));
+            case CREATE:
+                return commandBuilder.buildEgressOnlyOneDirection(context, flow, oppositePath, path).stream()
+                        .filter(f -> f instanceof TransitFlowLoopSegmentRequestFactory)
+                        .collect(Collectors.toList());
+            case DELETE:
+            default:
+                // No rules installation required
+                return Collections.emptyList();
+        }
+    }
+
+    private Collection<FlowSegmentRequestFactory> buildCommandsForDestinationUpdate(
+            FlowCommandBuilder commandBuilder, FlowUpdateFsm stateMachine, Flow flow,
+            FlowPath path, FlowPath oppositePath, CommandContext context) {
+        switch (stateMachine.getFlowLoopOperation()) {
+            case NONE:
+                return new ArrayList<>(commandBuilder
+                        .buildEgressOnlyOneDirection(context, flow, path, oppositePath));
+            case CREATE:
+                return commandBuilder.buildEgressOnlyOneDirection(context, flow, path, oppositePath).stream()
+                        .filter(f -> f instanceof TransitFlowLoopSegmentRequestFactory)
+                        .collect(Collectors.toList());
+            case DELETE:
+            default:
+                // No rules installation required
+                return Collections.emptyList();
         }
     }
 }

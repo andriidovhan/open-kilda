@@ -59,7 +59,7 @@ public class SimpleSwitchRule {
             outVlanString = "-" + outVlanString;
         }
         return "{sw:" + switchId
-                + ", ck:" + cookie
+                + ", ck:" + Long.toHexString(cookie)
                 + ", in:" + inPort + "-" + inVlan
                 + ", out:" + outPort + outVlanString
                 + '}';

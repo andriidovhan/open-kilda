@@ -94,6 +94,32 @@ public class FlowValidator {
         }
     }
 
+    /**
+     * Validates the specified flow.
+     *
+     * @param flow current flow state.
+     * @param requestedFlow a flow to be validated.
+     * @param bulkUpdateFlowIds flows to be ignored when check endpoints.
+     * @throws InvalidFlowException is thrown if a violation is found.
+     */
+    public void validate(Flow flow, RequestedFlow requestedFlow, Set<String> bulkUpdateFlowIds)
+            throws InvalidFlowException, UnavailableFlowEndpointException {
+        validate(requestedFlow, bulkUpdateFlowIds);
+        if (requestedFlow.getLoopSwitchId() != null) {
+            SwitchId loopSwitchId = requestedFlow.getLoopSwitchId();
+            boolean loopSwitchIsTerminating = flow.getSrcSwitchId().equals(loopSwitchId)
+                    || flow.getDestSwitchId().equals(loopSwitchId);
+            if (!loopSwitchIsTerminating) {
+                throw new InvalidFlowException("Loop switch is not terminating in flow path",
+                        ErrorType.PARAMETERS_INVALID);
+            }
+
+            if (flow.isLooped() && !loopSwitchId.equals(flow.getLoopSwitchId())) {
+                throw new InvalidFlowException("Can't change loop switch", ErrorType.PARAMETERS_INVALID);
+            }
+        }
+    }
+
     private void baseFlowValidate(RequestedFlow flow, Set<String> bulkUpdateFlowIds)
             throws InvalidFlowException, UnavailableFlowEndpointException {
         final FlowEndpoint source = RequestedFlowMapper.INSTANCE.mapSource(flow);
@@ -352,7 +378,7 @@ public class FlowValidator {
         SwitchProperties switchProperties = switchPropertiesRepository.findBySwitchId(
                 endpoint.getSwitchId())
                 .orElseGet(() -> SwitchProperties.builder().build());
-        if (! switchProperties.isMultiTable()) {
+        if (!switchProperties.isMultiTable()) {
             final String errorMessage = format(
                     "Flow's %s endpoint is double VLAN tagged, switch %s is not capable to support such endpoint "
                             + "encapsulation.",

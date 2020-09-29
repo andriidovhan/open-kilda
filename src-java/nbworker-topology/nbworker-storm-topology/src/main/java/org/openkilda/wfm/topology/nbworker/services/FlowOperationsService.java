@@ -532,6 +532,13 @@ public class FlowOperationsService {
         return results;
     }
 
+    /**
+     * Get flow loops.
+     */
+    public Collection<Flow> getLoopedFlows(String flowId, SwitchId switchId) {
+        return flowRepository.findLoopedByFlowIdAndLoopSwitchId(flowId, switchId);
+    }
+
     @Data
     @Builder
     static class UpdateFlowResult {

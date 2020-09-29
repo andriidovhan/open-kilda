@@ -42,6 +42,7 @@ import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -498,6 +499,29 @@ public class FermaFlowRepository extends FermaGenericRepository<Flow, FlowData, 
                             remove(flow);
                             return flow;
                         }));
+    }
+
+    @Override
+    public Collection<Flow> findLoopedByFlowIdAndLoopSwitchId(String flowId, SwitchId switchId) {
+        String switchIdAsStr = SwitchIdConverter.INSTANCE.toGraphProperty(switchId);
+
+        List<Flow> result = new ArrayList<>();
+
+        framedGraph().traverse(g -> g.V()
+                .hasLabel(FlowFrame.FRAME_LABEL)
+                .has(FlowFrame.SRC_SWITCH_ID_PROPERTY, switchIdAsStr)
+                .has(FlowFrame.LOOP_SWITCH_ID_PROPERTY, P.neq(null)))
+                .frameExplicit(FlowFrame.class)
+                .forEachRemaining(frame -> result.add(new Flow(frame)));
+
+        framedGraph().traverse(g -> g.V()
+                .hasLabel(FlowFrame.FRAME_LABEL)
+                .has(FlowFrame.DST_SWITCH_ID_PROPERTY, switchIdAsStr)
+                .has(FlowFrame.LOOP_SWITCH_ID_PROPERTY, P.neq(null)))
+                .frameExplicit(FlowFrame.class)
+                .forEachRemaining(frame -> result.add(new Flow(frame)));
+
+        return result;
     }
 
     @Override
