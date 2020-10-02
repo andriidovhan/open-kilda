@@ -110,7 +110,8 @@ class QinQFlowSpec extends HealthCheckSpecification {
         )
         involvedSwitchesFlow1.each {
             with(northbound.validateSwitch(it.dpId)) { validation ->
-                validation.verifyRuleSectionsAreEmpty(["missing", "excess", "misconfigured"])
+                validation.verifyRuleSectionsAreEmpty(["missing", "excess", "misconfigured",
+                                                       "missingHex", "excessHex", "misconfiguredHex"])
                 validation.verifyMeterSectionsAreEmpty(["missing", "excess", "misconfigured"])
             }
         }
@@ -859,7 +860,9 @@ class QinQFlowSpec extends HealthCheckSpecification {
         then: "System detects missing rules on the src switch"
         with(northbound.validateSwitch(swP.src.dpId).rules) {
             it.excess.empty
+            it.excessHex.empty
             it.missing.size() == 3
+            it.missingHex.size() == 3
         }
 
         when: "Synchronize the src switch"
@@ -867,7 +870,7 @@ class QinQFlowSpec extends HealthCheckSpecification {
 
         then: "Missing rules are reinstalled"
         switchHelper.verifyRuleSectionsAreEmpty(northbound.validateSwitch(swP.src.dpId),
-                ["missing", "excess", "misconfigured"])
+                ["missing", "excess", "misconfigured", "missingHex", "excessHex", "misconfiguredHex"])
 
         and: "Flow is valid"
         northbound.validateFlow(flow.flowId).each { assert it.asExpected }

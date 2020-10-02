@@ -338,17 +338,30 @@ class SwitchHelper {
      * Based on that you have to use extra filter to detect these rules in missing/excess/misconfigured sections.
      */
     static void verifyRuleSectionsAreEmpty(SwitchValidationResult switchValidateInfo,
-                                           List<String> sections = ["missing", "proper", "excess", "misconfigured"]) {
+                                           List<String> sections = ["missing", "proper", "excess", "misconfigured",
+                                                                    "properHex", "excessHex", "missingHex",
+                                                                    "misconfiguredHex"]) {
         sections.each { String section ->
-            if (section == "proper") {
-                assert switchValidateInfo.rules.proper.findAll {
+            if (section == "proper" || section == "properHex") {
+                def defaultCookies = switchValidateInfo.rules.proper.findAll {
                     def cookie = new Cookie(it)
-                    !cookie.serviceFlag && cookie.type != CookieType.SHARED_OF_FLOW }.empty
+                    cookie.serviceFlag || cookie.type == CookieType.SHARED_OF_FLOW
+                }
+                assert switchValidateInfo.rules.proper.findAll { !(it in defaultCookies) }.empty
+
+                def defaultHexCookies = []
+                defaultCookies.each { defaultHexCookies.add(Long.toHexString(it)) }
+                assert switchValidateInfo.rules.properHex.findAll { !(it in defaultHexCookies) }.empty
             } else {
-                assert switchValidateInfo.rules."$section".findAll {
+                def defaultCookies = switchValidateInfo.rules."$section".findAll {
                     def cookie = new Cookie(it)
-                    cookie.type == CookieType.MULTI_TABLE_INGRESS_RULES || !cookie.serviceFlag
-                }.empty
+                    cookie.serviceFlag || cookie.type != CookieType.MULTI_TABLE_INGRESS_RULES
+                }
+                assert switchValidateInfo.rules."$section".findAll { !(it in defaultCookies) }.empty
+
+                def defaultHexCookies = []
+                defaultCookies.each { defaultHexCookies.add(Long.toHexString(it)) }
+                assert switchValidateInfo.rules."$section".findAll { !(it in defaultHexCookies) }.empty
             }
         }
     }
