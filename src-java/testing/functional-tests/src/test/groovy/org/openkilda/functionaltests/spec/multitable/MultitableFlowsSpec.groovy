@@ -1102,7 +1102,7 @@ mode with existing flows and hold flows of different table-mode types"() {
         northbound.validateFlow(flow.flowId).findAll { it.discrepancies.empty && it.asExpected }.size() == 1
 
         when: "Delete the flow rules on the dst switch"
-        def sharedRuleOnDstSwitch = northbound.getSwitchRules(involvedSwitches[2].dpId).flowEntries.find {
+        def sharedRulesOnDstSwitch = northbound.getSwitchRules(involvedSwitches[2].dpId).flowEntries.findAll {
                 new Cookie(it.cookie).getType() == CookieType.SHARED_OF_FLOW
         }
         northbound.deleteSwitchRules(involvedSwitches[2].dpId, DeleteRulesAction.IGNORE_DEFAULTS)
@@ -1115,7 +1115,7 @@ mode with existing flows and hold flows of different table-mode types"() {
             validateInfo.rules.excess.empty
             validateInfo.rules.misconfigured.empty
             validateInfo.rules.missing.sort() ==
-                    [flowInfoFromDb.forwardPath.cookie.value, flowInfoFromDb.reversePath.cookie.value, sharedRuleOnDstSwitch.cookie].sort()
+                    [flowInfoFromDb.forwardPath.cookie.value, flowInfoFromDb.reversePath.cookie.value, *sharedRulesOnDstSwitch.cookie].sort()
             validateInfo.meters.excess.empty
             validateInfo.meters.missing.empty
             validateInfo.meters.misconfigured.empty

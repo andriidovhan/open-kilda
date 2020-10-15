@@ -62,8 +62,6 @@ Description of fields:
 class SwitchValidationSpec extends HealthCheckSpecification {
     @Value("#{kafkaTopicsConfig.getSpeakerTopic()}")
     String speakerTopic
-    @Value('${use.multitable}')
-    boolean useMultitable
     @Autowired
     @Qualifier("kafkaProducerProperties")
     Properties producerProps
@@ -610,9 +608,9 @@ misconfigured"
             new Cookie(it).getType() != CookieType.SHARED_OF_FLOW
         }
         def amountOfFlowRules = useMultitable ? 3 : 2  // 3 -> SHARED_OF_FLOW + ingress + egress
-        createdCookiesSrcSw.size() == amountOfFlowRules
-        createdCookiesDstSw.size() == amountOfFlowRules
-        createdCookiesTransitSwitch.size() == 2 // without SHARED_OF_FLOW
+        assert createdCookiesSrcSw.size() == amountOfFlowRules
+        assert createdCookiesDstSw.size() == amountOfFlowRules
+        assert createdCookiesTransitSwitch.size() == 2 // without SHARED_OF_FLOW
 
         when: "Create excess rules on switches"
         def involvedSwitches = pathHelper.getInvolvedSwitches(flow.flowId)*.dpId

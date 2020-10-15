@@ -194,9 +194,7 @@ public class TopologyDefinition {
     public List<Switch> getActiveServer42Switches() {
         return switches.stream()
                 .filter(Switch::isActive)
-                .filter(s -> s.prop != null
-                        && s.prop.server42FlowRtt != null
-                        && s.prop.server42FlowRtt)
+                .filter(s -> s.prop != null)
                 .collect(toList());
     }
 

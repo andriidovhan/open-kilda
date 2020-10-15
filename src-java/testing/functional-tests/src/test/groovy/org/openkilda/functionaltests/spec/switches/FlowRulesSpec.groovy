@@ -56,9 +56,6 @@ class FlowRulesSpec extends HealthCheckSpecification {
     @Autowired
     Provider<TraffExamService> traffExamProvider
 
-    @Value('${use.multitable}')
-    boolean useMultiTable
-
     @Shared
     Switch srcSwitch, dstSwitch
     @Shared
@@ -650,7 +647,7 @@ class FlowRulesSpec extends HealthCheckSpecification {
     @Tags([SMOKE, SMOKE_SWITCHES])
     def "Traffic counters in ingress rule are reset on flow rerouting(singleTable mode)"() {
         given: "Two active neighboring switches and two possible flow paths at least"
-        assumeTrue("This test is not ready to be run under multiTable mode", !useMultiTable)
+        assumeTrue("This test is not ready to be run under multiTable mode", !useMultitable)
         def allTraffgenSwitchIds = topology.activeTraffGens*.switchConnected*.dpId
         List<List<PathNode>> possibleFlowPaths = []
         def isl = topology.getIslsForActiveSwitches().find {
@@ -712,7 +709,7 @@ class FlowRulesSpec extends HealthCheckSpecification {
     @Tags([SMOKE, SMOKE_SWITCHES])
     def "Traffic counters in ingress rule are reset on flow rerouting(multiTable mode)"() {
         given: "Two active neighboring switches and two possible flow paths at least"
-        assumeTrue("This test can be run in multiTable mode", useMultiTable)
+        assumeTrue("This test can be run in multiTable mode", useMultitable)
         def allTraffgenSwitchIds = topology.activeTraffGens*.switchConnected*.dpId
         List<List<PathNode>> possibleFlowPaths = []
         def isl = topology.getIslsForActiveSwitches().find {
