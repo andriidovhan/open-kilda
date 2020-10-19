@@ -1,5 +1,6 @@
 package org.openkilda.functionaltests.spec.flows
 
+import static groovyx.gpars.GParsPool.withPool
 import static org.junit.Assume.assumeTrue
 import static org.openkilda.functionaltests.extension.tags.Tag.HARDWARE
 import static org.openkilda.functionaltests.extension.tags.Tag.LOW_PRIORITY
@@ -28,7 +29,10 @@ import org.openkilda.messaging.payload.flow.FlowState
 import org.openkilda.model.FlowEncapsulationType
 import org.openkilda.model.SwitchId
 import org.openkilda.model.SwitchStatus
+import org.openkilda.model.cookie.Cookie
+import org.openkilda.model.cookie.CookieBase.CookieType
 import org.openkilda.northbound.dto.v2.flows.FlowEndpointV2
+import org.openkilda.northbound.dto.v2.flows.FlowLoopPayload
 import org.openkilda.northbound.dto.v2.flows.SwapFlowPayload
 import org.openkilda.testing.model.topology.TopologyDefinition.Switch
 import org.openkilda.testing.service.traffexam.TraffExamService
@@ -1373,6 +1377,100 @@ switches"() {
         !isSwitchValid && switches.each { northbound.synchronizeSwitch(it, true)}
     }
 
+    @Ignore("wait fix from dev")
+    @Tidy
+    def "Able to swap endpoints for a flow with flowLoop"() {
+        setup: "Create two flows with the same src and different dst switches"
+        def tgSwitchIds = topology.getActiveTraffGens()*.switchConnected*.dpId
+        assumeTrue("Not enough traffgen switches found", tgSwitchIds.size() > 1)
+        SwitchPair flow2SwitchPair = null
+        SwitchPair flow1SwitchPair = topologyHelper.getAllNeighboringSwitchPairs().find { firstPair ->
+            def firstOk = firstPair.src.dpId in tgSwitchIds && firstPair.dst.dpId in tgSwitchIds
+            flow2SwitchPair = topologyHelper.getAllNeighboringSwitchPairs().find { secondPair ->
+                secondPair.src.dpId == firstPair.src.dpId && secondPair.dst.dpId != firstPair.dst.dpId
+            }
+            firstOk && flow2SwitchPair
+        }
+        assumeTrue("Required switch pairs not found in given topology",
+                flow1SwitchPair.asBoolean() && flow2SwitchPair.asBoolean())
+
+        def flow1 = getFirstFlow(flow1SwitchPair, flow2SwitchPair)
+        def flow2 = getSecondFlow(flow1SwitchPair, flow2SwitchPair, flow1)
+
+        flowHelper.addFlow(flow1)
+        flowHelper.addFlow(flow2)
+
+        and: "FlowLoop is created for the second flow on the dst switch"
+        northboundV2.createFlowLoop(flow2.id, new FlowLoopPayload(flow2SwitchPair.dst.dpId))
+        Wrappers.wait(WAIT_OFFSET) {
+            assert northbound.getFlowStatus(flow2.id).status == FlowState.UP
+        }
+
+        when: "Try to swap endpoints for two flows"
+        def flow1Dst = flow2.destination
+        def flow1Src = flow2.source
+        def flow2Dst = flow1.destination
+        def flow2Src = flow1.source
+        def response = northbound.swapFlowEndpoint(
+                new SwapFlowPayload(flow1.id, flowHelper.toFlowEndpointV2(flow1Src),
+                        flowHelper.toFlowEndpointV2(flow1Dst)),
+                new SwapFlowPayload(flow2.id, flowHelper.toFlowEndpointV2(flow2Src),
+                        flowHelper.toFlowEndpointV2(flow2Dst)))
+
+        then: "Endpoints are successfully swapped"
+        verifyEndpoints(response, flow1Src, flow1Dst, flow2Src, flow2Dst)
+        verifyEndpoints(flow1.id, flow2.id, flow1Src, flow1Dst, flow2Src, flow2Dst)
+
+        and: "Flows validation doesn't show any discrepancies"
+        validateFlows(flow1, flow2)
+
+        and: "FlowLoop is still created for the first flow but on the new dst switch"
+        with(northbound.getFlow(flow2.id)) {
+            it.loopSwitchId == flow1SwitchPair.dst.dpId
+        }
+
+        and: "FlowLoop rules are created on the new dst switch"
+        Wrappers.wait(RULES_INSTALLATION_TIME) {
+            Map<Long, Long> flowLoopsCounter = getFlowLoopRules(flow1SwitchPair.dst.dpId)
+                    .collectEntries { [(it.cookie): it.packetCount] }
+            assert flowLoopsCounter.size() == 2
+            assert flowLoopsCounter.values().every { it == 0 }
+        }
+
+        and: "FlowLoop rules are deleted on the old dst switch"
+        Wrappers.wait(RULES_INSTALLATION_TIME) {
+            assert getFlowLoopRules(flow2SwitchPair.dst.dpId).empty
+        }
+
+        and: "Switch validation doesn't show any missing/excess rules and meters"
+        validateSwitches([flow1SwitchPair.src, flow1SwitchPair.dst, flow2SwitchPair.src, flow2SwitchPair.dst].unique())
+        def switchesAreValid = true
+
+        when: "Send traffic via flow2"
+        def traffExam = traffExamProvider.get()
+        def exam = new FlowTrafficExamBuilder(topology, traffExam)
+                .buildBidirectionalExam(northbound.getFlow(flow2.id), 1000, 5)
+
+        then: "Flow doesn't allow traffic, because it is grubbed by flowLoop rules"
+        withPool {
+            [exam.forward, exam.reverse].eachParallel { direction ->
+                def resources = traffExam.startExam(direction)
+                direction.setResources(resources)
+                assert !traffExam.waitExam(direction).hasTraffic()
+            }
+        }
+
+        and: "Counter on the flowLoop rules are increased"
+        getFlowLoopRules(flow1SwitchPair.dst.dpId)*.packetCount.every { it > 0 }
+
+        cleanup: "Restore topology and delete flows"
+        [flow1, flow2].each { flowHelper.deleteFlow(it.id) }
+        if (!switchesAreValid) {
+            [flow1SwitchPair.src.dpId, flow1SwitchPair.dst.dpId, flow2SwitchPair.src.dpId, flow2SwitchPair.dst.dpId]
+                    .unique().each { northbound.synchronizeSwitch(it, true) }
+        }
+    }
+
     void verifyEndpoints(response, FlowEndpointPayload flow1SrcExpected, FlowEndpointPayload flow1DstExpected,
             FlowEndpointPayload flow2SrcExpected, FlowEndpointPayload flow2DstExpected) {
         verifyEndpoints(response, flowHelper.toFlowEndpointV2(flow1SrcExpected),
@@ -1567,6 +1665,13 @@ switches"() {
         topologyHelper.getAllNeighboringSwitchPairs().find {
             it."$equalEndpoint" == switchPairToAvoid."$equalEndpoint" &&
                     it."$differentEndpoint" != switchPairToAvoid."$differentEndpoint"
+        }
+    }
+
+    def getFlowLoopRules(SwitchId switchId) {
+        northbound.getSwitchRules(switchId).flowEntries.findAll {
+            def hexCookie = Long.toHexString(it.cookie)
+            hexCookie.startsWith("20080000") || hexCookie.startsWith("40080000")
         }
     }
 }
