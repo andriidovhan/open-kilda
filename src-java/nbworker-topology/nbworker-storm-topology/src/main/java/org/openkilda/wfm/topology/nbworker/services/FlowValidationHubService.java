@@ -44,15 +44,18 @@ import java.util.Map;
 @Slf4j
 public class FlowValidationHubService {
     private Map<String, FlowValidationFsm> fsms = new HashMap<>();
-
+    private boolean active = true;
+    private FlowValidationHubCarrier defaultCarrier;
     private PersistenceManager persistenceManager;
     private FlowResourcesConfig flowResourcesConfig;
     private StateMachineBuilder<FlowValidationFsm, FlowValidationState, FlowValidationEvent, Object> builder;
 
-    public FlowValidationHubService(PersistenceManager persistenceManager, FlowResourcesConfig flowResourcesConfig) {
+    public FlowValidationHubService(PersistenceManager persistenceManager, FlowResourcesConfig flowResourcesConfig,
+                                    FlowValidationHubCarrier defaultCarrier) {
         this.persistenceManager = persistenceManager;
         this.flowResourcesConfig = flowResourcesConfig;
         this.builder = FlowValidationFsm.builder();
+        this.defaultCarrier = defaultCarrier;
     }
 
     /**
@@ -139,6 +142,18 @@ public class FlowValidationHubService {
 
         if (exitStates.contains(fsm.getCurrentState())) {
             fsms.remove(fsm.getKey());
+            if (fsms.isEmpty() && !active) {
+                defaultCarrier.sendToZk();
+            }
         }
+    }
+
+
+    public void deactivate() {
+        active = false;
+    }
+
+    public void activate() {
+        active = true;
     }
 }
