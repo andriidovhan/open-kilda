@@ -25,6 +25,7 @@ import lombok.Getter;
 import net.floodlightcontroller.core.module.FloodlightModuleContext;
 
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Getter
 public class ConsumerContext {
@@ -33,6 +34,8 @@ public class ConsumerContext {
     private final KafkaChannel kafkaChannel;
     private final SpeakerCommandProcessor commandProcessor;
     private final NetworkDiscoveryEmitter discoveryEmitter;
+
+    private final AtomicBoolean active;
 
     public ConsumerContext(FloodlightModuleContext moduleContext, KafkaMessageCollectorConfig config) {
         this.moduleContext = moduleContext;
@@ -43,6 +46,8 @@ public class ConsumerContext {
 
         Duration flushDelay = Duration.ofMillis(config.getDiscoveryFlushDelayMillis());
         discoveryEmitter = new NetworkDiscoveryEmitter(moduleContext, flushDelay);
+
+        active = new AtomicBoolean(true);
     }
 
     public String getRegion() {
@@ -79,5 +84,9 @@ public class ConsumerContext {
 
     public String getKafkaSwitchManagerTopic() {
         return kafkaChannel.getTopoSwitchManagerTopic();
+    }
+
+    public AtomicBoolean getActive() {
+        return active;
     }
 }

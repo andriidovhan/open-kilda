@@ -189,6 +189,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 class RecordHandler implements Runnable {
@@ -202,9 +203,12 @@ class RecordHandler implements Runnable {
 
     private final CommandProcessorService commandProcessor;
 
+    private final AtomicBoolean active;
+
     public RecordHandler(ConsumerContext context, List<CommandDispatcher<?>> dispatchers,
                          ConsumerRecord<String, String> record) {
         this.context = context;
+        this.active = context.getActive();
         this.dispatchers = dispatchers;
         this.record = record;
 
@@ -1608,6 +1612,10 @@ class RecordHandler implements Runnable {
     }
 
     private void parseRecord(ConsumerRecord<String, String> record) {
+        if (!active.get()) {
+            return;
+        }
+
         if (handleSpeakerCommand()) {
             return;
         }

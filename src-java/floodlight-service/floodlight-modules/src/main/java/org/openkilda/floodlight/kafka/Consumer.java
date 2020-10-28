@@ -69,6 +69,10 @@ public class Consumer implements Runnable {
 
     @Override
     public void run() {
+        String zkString = "zookeeper.pendev:2181";
+        handlersPool.execute(new ZooKeeperHandler(handlerFactory.getContext().getActive(),
+                "green", "floodlight", 1, zkString));
+        
         while (!Thread.currentThread().isInterrupted()) {
             /*
              * Ensure we try to keep processing messages. It is possible that the consumer needs
