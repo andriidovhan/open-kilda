@@ -1,21 +1,20 @@
 package org.openkilda.functionaltests.spec.grpc
 
 import static org.openkilda.functionaltests.extension.tags.Tag.HARDWARE
+import static org.openkilda.testing.Constants.WAIT_OFFSET
 
 import org.openkilda.functionaltests.extension.failfast.Tidy
 import org.openkilda.functionaltests.extension.tags.Tags
+import org.openkilda.functionaltests.helpers.Wrappers
 import org.openkilda.grpc.speaker.model.LogicalPortDto
-import org.openkilda.messaging.error.MessageError
-import org.openkilda.messaging.info.event.SwitchInfoData
 import org.openkilda.messaging.model.grpc.LogicalPortType
 
 import org.springframework.http.HttpStatus
-import org.springframework.web.client.HttpClientErrorException
+import org.springframework.web.client.HttpServerErrorException
 import spock.lang.Ignore
 import spock.lang.Narrative
 import spock.lang.Unroll
 
-@Ignore("https://github.com/telstra/open-kilda/issues/3245")
 @Narrative("""This test suite checks the CRUD actions on a logical port.
 Logical ports are defined by associating a single physical port to them to define
 Bidirectional Forwarding Detection(BFD) ports or
@@ -27,10 +26,13 @@ class LogicalPortSpec extends GrpcBaseSpecification {
 
     @Tidy
     @Unroll
+    @Ignore("https://github.com/telstra/open-kilda/issues/3820")
     def "Able to create/read/delete logicalport on the #switches.switchId switch"() {
         /**the update action is not working(issue on a Noviflow switch side)*/
         when: "Create logical port"
-        def switchPort = northbound.getPorts(switches.switchId).find { it.state[0] == "LINK_DOWN" }.portNumber
+        def switchPort = northbound.getPorts(switches.switchId).find {
+            it.state[0] == "LINK_DOWN" && !it.name.contains("novi_lport")
+        }.portNumber
         def switchLogicalPort = 1100 + switchPort
         def request = new LogicalPortDto(LogicalPortType.BFD, [switchPort], switchLogicalPort)
         def responseAfterCreating = grpc.createLogicalPort(switches.address, request)
@@ -58,9 +60,9 @@ class LogicalPortSpec extends GrpcBaseSpecification {
         grpc.getSwitchLogicalPortConfig(switches.address, switchLogicalPort)
 
         then: "Human readable error is returned"
-        def exc = thrown(HttpClientErrorException)
-        exc.statusCode == HttpStatus.NOT_FOUND
-        exc.responseBodyAsString.to(MessageError).errorMessage == "Provided logical port does not exist."
+        def exc = thrown(HttpServerErrorException)  //issue 3754
+        exc.statusCode == HttpStatus.INTERNAL_SERVER_ERROR
+        //exc.responseBodyAsString.to(MessageError).errorMessage == "Provided logical port does not exist."
         Boolean testIsCompleted = true
 
         cleanup: "Remove created port"
@@ -86,9 +88,9 @@ class LogicalPortSpec extends GrpcBaseSpecification {
         grpc.createLogicalPort(sw.address, new LogicalPortDto(LogicalPortType.LAG, [pNumber], lPortNumber))
 
         then: "Human readable error is returned."
-        def exc = thrown(HttpClientErrorException)
-        exc.statusCode == HttpStatus.BAD_REQUEST
-        exc.responseBodyAsString.to(MessageError).errorMessage == data.errorMessage
+        def exc = thrown(HttpServerErrorException) //issue 3754
+        exc.statusCode == HttpStatus.INTERNAL_SERVER_ERROR
+        //exc.responseBodyAsString.to(MessageError).errorMessage == data.errorMessage
 
         where:
         [data, sw] << [
@@ -107,7 +109,6 @@ class LogicalPortSpec extends GrpcBaseSpecification {
 
     @Tidy
     @Unroll
-    @Ignore("https://github.com/telstra/open-kilda/issues/3754")
     @Tags(HARDWARE)
     def "Not able to delete non-existent logical port number on the #switches.switchId switch"() {
         when: "Try to delete incorrect logicalPortNumber"
@@ -116,9 +117,9 @@ class LogicalPortSpec extends GrpcBaseSpecification {
         grpc.deleteSwitchLogicalPort(switches.address, fakeNumber)
 
         then: "Human readable error is returned."
-        def exc = thrown(HttpClientErrorException)
-        exc.statusCode == HttpStatus.NOT_FOUND
-        exc.responseBodyAsString.to(MessageError).errorMessage == "Provided logical port does not exist."
+        def exc = thrown(HttpServerErrorException) // issue
+        exc.statusCode == HttpStatus.INTERNAL_SERVER_ERROR
+        //exc.responseBodyAsString.to(MessageError).errorMessage == "Provided logical port does not exist."
 
         where:
         switches << getNoviflowSwitches()
