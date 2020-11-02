@@ -15,11 +15,14 @@
 
 package org.openkilda.wfm.topology.network.storm.bolt.watchlist;
 
+import org.openkilda.bluegreen.LifecycleEvent;
+import org.openkilda.bluegreen.Signal;
 import org.openkilda.wfm.AbstractBolt;
 import org.openkilda.wfm.CommandContext;
 import org.openkilda.wfm.error.PipelineException;
 import org.openkilda.wfm.share.hubandspoke.CoordinatorSpout;
 import org.openkilda.wfm.share.model.Endpoint;
+import org.openkilda.wfm.share.zk.ZooKeeperSpout;
 import org.openkilda.wfm.topology.network.model.NetworkOptions;
 import org.openkilda.wfm.topology.network.service.IWatchListCarrier;
 import org.openkilda.wfm.topology.network.service.NetworkWatchListService;
@@ -60,6 +63,8 @@ public class WatchListHandler extends AbstractBolt implements IWatchListCarrier 
         String source = input.getSourceComponent();
         if (CoordinatorSpout.ID.equals(source)) {
             handleTimer();
+        } else if (ComponentId.INPUT_ZOOKEEPER.toString().equals(source)) {
+            handleLifeCycleEvent(input);
         } else if (PortHandler.BOLT_ID.equals(source)) {
             handlePortCommand(input);
         } else if (UniIslHandler.BOLT_ID.equals(source)) {
@@ -73,6 +78,15 @@ public class WatchListHandler extends AbstractBolt implements IWatchListCarrier 
 
     private void handleTimer() {
         service.tick();
+    }
+
+    private void handleLifeCycleEvent(Tuple input) {
+        LifecycleEvent event = (LifecycleEvent) input.getValueByField(ZooKeeperSpout.FIELD_ID_LIFECYCLE_EVENT);
+        if (event.getSignal().equals(Signal.SHUTDOWN)) {
+            service.deactivate();
+        } else {
+            service.activate();
+        }
     }
 
     private void handlePortCommand(Tuple input) throws PipelineException {

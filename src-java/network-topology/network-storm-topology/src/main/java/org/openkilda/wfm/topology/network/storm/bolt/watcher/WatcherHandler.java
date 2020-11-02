@@ -15,6 +15,8 @@
 
 package org.openkilda.wfm.topology.network.storm.bolt.watcher;
 
+import org.openkilda.bluegreen.LifecycleEvent;
+import org.openkilda.bluegreen.Signal;
 import org.openkilda.messaging.command.CommandData;
 import org.openkilda.messaging.command.discovery.DiscoverIslCommandData;
 import org.openkilda.messaging.info.event.IslInfoData;
@@ -25,6 +27,7 @@ import org.openkilda.wfm.error.PipelineException;
 import org.openkilda.wfm.share.bolt.KafkaEncoder;
 import org.openkilda.wfm.share.hubandspoke.CoordinatorSpout;
 import org.openkilda.wfm.share.model.Endpoint;
+import org.openkilda.wfm.share.zk.ZooKeeperSpout;
 import org.openkilda.wfm.topology.network.model.NetworkOptions;
 import org.openkilda.wfm.topology.network.model.RoundTripStatus;
 import org.openkilda.wfm.topology.network.service.IWatcherCarrier;
@@ -79,6 +82,8 @@ public class WatcherHandler extends AbstractBolt implements IWatcherCarrier {
         String source = input.getSourceComponent();
         if (CoordinatorSpout.ID.equals(source)) {
             handleTimerTick();
+        } else if (ComponentId.INPUT_ZOOKEEPER.toString().equals(source)) {
+            handleLifeCycleEvent(input);
         } else if (SpeakerRouter.BOLT_ID.equals(source)) {
             handleSpeakerCommand(input);
         } else if (WatchListHandler.BOLT_ID.equals(source)) {
@@ -90,6 +95,15 @@ public class WatcherHandler extends AbstractBolt implements IWatcherCarrier {
 
     private void handleTimerTick() {
         service.tick();
+    }
+
+    private void handleLifeCycleEvent(Tuple input) {
+        LifecycleEvent event = (LifecycleEvent) input.getValueByField(ZooKeeperSpout.FIELD_ID_LIFECYCLE_EVENT);
+        if (event.getSignal().equals(Signal.SHUTDOWN)) {
+            service.deactivate();
+        } else {
+            service.activate();
+        }
     }
 
     private void handleSpeakerCommand(Tuple input) throws PipelineException {

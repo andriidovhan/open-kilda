@@ -15,6 +15,10 @@
 
 package org.openkilda.wfm.topology.network.storm.bolt.speaker;
 
+import static org.openkilda.wfm.share.zk.ZooKeeperSpout.FIELD_ID_LIFECYCLE_EVENT;
+
+import org.openkilda.bluegreen.LifecycleEvent;
+import org.openkilda.bluegreen.Signal;
 import org.openkilda.messaging.Message;
 import org.openkilda.messaging.floodlight.response.BfdSessionResponse;
 import org.openkilda.messaging.info.InfoData;
@@ -97,12 +101,17 @@ public class SpeakerRouter extends AbstractBolt {
     public static final String STREAM_WORKER_ID = "worker";
     public static final Fields STREAM_WORKER_FIELDS = new Fields(FIELD_ID_KEY, FIELD_ID_INPUT, FIELD_ID_CONTEXT);
 
+    private boolean active = true;
+
     @Override
     protected void handleInput(Tuple input) throws Exception {
         String source = input.getSourceComponent();
         if (ComponentId.INPUT_SPEAKER.toString().equals(source)) {
             Message message = pullValue(input, FIELD_ID_INPUT, Message.class);
             speakerMessage(input, message);
+        } else if (ComponentId.INPUT_ZOOKEEPER.toString().equals(source)) {
+            LifecycleEvent event = (LifecycleEvent) input.getValueByField(FIELD_ID_LIFECYCLE_EVENT);
+            active = Signal.START == event.getSignal();
         } else {
             unhandledInput(input);
         }
@@ -113,10 +122,12 @@ public class SpeakerRouter extends AbstractBolt {
     }
 
     private void proxySpeaker(Tuple input, Message message) throws PipelineException {
-        if (message instanceof InfoMessage) {
-            proxySpeaker(input, ((InfoMessage) message).getData());
-        } else {
-            log.error("Do not proxy speaker message - unexpected message type \"{}\"", message.getClass());
+        if (active) {
+            if (message instanceof InfoMessage) {
+                proxySpeaker(input, ((InfoMessage) message).getData());
+            } else {
+                log.error("Do not proxy speaker message - unexpected message type \"{}\"", message.getClass());
+            }
         }
     }
 

@@ -17,6 +17,8 @@ package org.openkilda.wfm.topology.network.storm.bolt.port;
 
 import static org.openkilda.wfm.topology.utils.KafkaRecordTranslator.FIELD_ID_PAYLOAD;
 
+import org.openkilda.bluegreen.LifecycleEvent;
+import org.openkilda.bluegreen.Signal;
 import org.openkilda.messaging.error.ErrorData;
 import org.openkilda.messaging.error.MessageException;
 import org.openkilda.messaging.info.event.IslInfoData;
@@ -30,6 +32,7 @@ import org.openkilda.wfm.share.history.model.PortHistoryEvent;
 import org.openkilda.wfm.share.hubandspoke.CoordinatorSpout;
 import org.openkilda.wfm.share.mappers.PortMapper;
 import org.openkilda.wfm.share.model.Endpoint;
+import org.openkilda.wfm.share.zk.ZooKeeperSpout;
 import org.openkilda.wfm.topology.network.controller.AntiFlapFsm.Config;
 import org.openkilda.wfm.topology.network.model.LinkStatus;
 import org.openkilda.wfm.topology.network.model.NetworkOptions;
@@ -107,6 +110,8 @@ public class PortHandler extends AbstractBolt implements IPortCarrier, IAntiFlap
         String source = input.getSourceComponent();
         if (CoordinatorSpout.ID.equals(source)) {
             handleTimer();
+        } else if (ComponentId.INPUT_ZOOKEEPER.toString().equals(source)) {
+            handleLifeCycleEvent(input);
         } else if (WatcherHandler.BOLT_ID.equals(source)) {
             handleWatcherCommand(input);
         } else if (DecisionMakerHandler.BOLT_ID.equals(source)) {
@@ -149,6 +154,15 @@ public class PortHandler extends AbstractBolt implements IPortCarrier, IAntiFlap
 
     private void handleTimer() {
         antiFlapService.tick();
+    }
+
+    private void handleLifeCycleEvent(Tuple input) {
+        LifecycleEvent event = (LifecycleEvent) input.getValueByField(ZooKeeperSpout.FIELD_ID_LIFECYCLE_EVENT);
+        if (event.getSignal().equals(Signal.SHUTDOWN)) {
+            antiFlapService.deactivate();
+        } else {
+            antiFlapService.activate();
+        }
     }
 
     @Override

@@ -19,6 +19,7 @@ public enum ComponentId {
     MONOTONIC_TICK("monotonic.tick"),
 
     INPUT_SPEAKER("input.speaker"),
+    INPUT_ZOOKEEPER("input.zookeeper"),
     INPUT_SWMANAGER("input.swmanager"),
     INPUT_SPEAKER_RULES("input.speaker.rules"),
     NETWORK_HISTORY("network-history"),
